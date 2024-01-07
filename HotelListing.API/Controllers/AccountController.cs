@@ -27,26 +27,16 @@ namespace HotelListing.API.Controllers
         public async Task<ActionResult> Register([FromBody] ApiUserDto apiUserDto)  //only from request body
         {
             _logger.LogInformation($"Registration Attempt for {apiUserDto.Email}");  // log Info
-            try 
+            var errors = await _authManager.Register(apiUserDto);
+            if (errors.Any())
             {
-                var errors = await _authManager.Register(apiUserDto);
-                if (errors.Any())
+                foreach (var error in errors)
                 {
-                    foreach (var error in errors)
-                    {
-                        ModelState.AddModelError(error.Code, error.Description);
-                    }
-                    return BadRequest(ModelState);
+                    ModelState.AddModelError(error.Code, error.Description);
                 }
-                return Ok();
+                return BadRequest(ModelState);
             }
-            catch (Exception ex) 
-            {
-                _logger.LogError(ex, $"Something went wrong in the {nameof(Register)} -" +
-                    $" User Registration attempt for {apiUserDto.Email}");  //log Error
-                return Problem($"Something went wrong in the {nameof(Register)}", statusCode: 500);  //instead of "throw"
-            }
-            
+            return Ok();  
         }
 
         // POST: api/Account/login
@@ -58,22 +48,12 @@ namespace HotelListing.API.Controllers
         public async Task<ActionResult> Login([FromBody] LoginDto loginDto)  //only from request body
         {
             _logger.LogInformation($"Login Attempt for {loginDto.Email}");  // log Info
-            
-            try
+            var authResponse = await _authManager.Login(loginDto);
+            if (authResponse is null)
             {
-                var authResponse = await _authManager.Login(loginDto);
-                if (authResponse is null)
-                {
-                    return Unauthorized();  // 401 Unauthorized
-                }
-                return Ok(authResponse);
+                return Unauthorized();  // 401 Unauthorized
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Something went wrong in the {nameof(Login)}");  //log Error
-                return Problem($"Something went wrong in the {nameof(Login)}", statusCode: 500);
-            }
-            
+            return Ok(authResponse);
         }
 
         // POST: api/Account/refreshtoken
