@@ -12,20 +12,20 @@ using NuGet.Protocol.Plugins;
 using HotelListing.API.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using HotelListing.API.Exceptions;
-using HotelListing.API.DTOs;
+using Microsoft.AspNetCore.OData.Query;
 
 namespace HotelListing.API.Controllers
 {
-    [Route("api/v{version:apiVersion}/countries")]  // with API Version in endpoint name
+    [Route("api/v{version:apiVersion}/countries")]
     [ApiController]
-    [ApiVersion("1.0", Deprecated = true)]  // set version as Deprecated
-    public class CountriesController : ControllerBase
+    [ApiVersion("2.0")]
+    public class CountriesV2Controller : ControllerBase
     {
         private readonly ICountriesRepository _countriesRepository;
         private readonly IMapper _mapper;
         private readonly ILogger<CountriesController> _logger;
 
-        public CountriesController(ICountriesRepository countriesRepository, IMapper mapper, 
+        public CountriesV2Controller(ICountriesRepository countriesRepository, IMapper mapper,
             ILogger<CountriesController> logger)
         {
             this._countriesRepository = countriesRepository;
@@ -33,26 +33,18 @@ namespace HotelListing.API.Controllers
             this._logger = logger;
         }
 
-        // GET: api/Countries/GetAll
-        [HttpGet("GetAll")]
+        // GET: api/Countries
+        [HttpGet]
+        [EnableQuery]  // usually used for endpoints that provide all data
         public async Task<ActionResult<IEnumerable<GetCountryDto>>> GetCountries()
         {
-          if (await _countriesRepository.GetAllAsync() == null)  // my own implementation
-          {
-              return NotFound();
-          }
+            if (await _countriesRepository.GetAllAsync() == null)  // my own implementation
+            {
+                return NotFound();
+            }
             var countries = await _countriesRepository.GetAllAsync();
             var records = _mapper.Map<List<GetCountryDto>>(countries);
             return Ok(records);  // return above with "OK" response
-        }
-
-        // GET: api/v1/Countries/?StartIndex=0&PageSize=25&PageNumber=1
-        [HttpGet]
-        public async Task<ActionResult<PagedResult<GetCountryDto>>> GetPagedCountries(
-            [FromQuery] QueryParameters queryParameters)  // Queriable
-        {
-            var pagedCountriesResult = await _countriesRepository.GetAllAsync<GetCountryDto>(queryParameters);
-            return Ok(pagedCountriesResult); 
         }
 
         // GET: api/Countries/5
@@ -60,7 +52,7 @@ namespace HotelListing.API.Controllers
         public async Task<ActionResult<CountryDto>> GetCountry(int id)
         {
             var country = await _countriesRepository.GetDetails(id);
-            
+
             if (country == null)
             {
                 throw new NotFoundException(nameof(GetCountry), id);
@@ -82,9 +74,9 @@ namespace HotelListing.API.Controllers
                 return BadRequest("Invalid Record Id");  //response 400 with custom message
             }
 
-           // _context.Entry(country).State = EntityState.Modified;  // see different Entity statuses
+            // _context.Entry(country).State = EntityState.Modified;  // see different Entity statuses
             var country = await _countriesRepository.GetAsync(id);
-            if (country == null) 
+            if (country == null)
             {
                 throw new NotFoundException(nameof(GetCountry), id);
             }
@@ -121,7 +113,7 @@ namespace HotelListing.API.Controllers
             await _countriesRepository.AddAsync(country);
 
             // responsible for URI to access object: /api/Countries/5 
-            return CreatedAtAction("GetCountry", new { id = country.Id }, country);   
+            return CreatedAtAction("GetCountry", new { id = country.Id }, country);
         }
 
         // DELETE: api/Countries/5
