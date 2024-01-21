@@ -1,5 +1,5 @@
-﻿using HotelListing.API.DTOs.Users;
-using HotelListing.API.Interfaces;
+﻿using HotelListing.API.Core.DTOs.Users;
+using HotelListing.API.Core.Interfaces;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
