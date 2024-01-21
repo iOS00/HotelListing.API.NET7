@@ -108,7 +108,7 @@ namespace HotelListing.API.Core.Repository
             await _context.SaveChangesAsync();
         }
 
-        public async Task UpdatedAsync<TSource>(int id, TSource source)
+        public async Task UpdateAsync<TSource>(int id, TSource source)
         {
             var entity = await GetAsync(id);
 
