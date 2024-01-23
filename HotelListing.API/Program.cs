@@ -4,14 +4,17 @@ using HotelListing.API.Core.Middleware;
 using HotelListing.API.Core.Repository;
 using HotelListing.API.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Versioning;
 using Microsoft.AspNetCore.OData;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -132,6 +135,18 @@ builder.Services.AddResponseCaching(options =>
     options.UseCaseSensitivePaths = true;  // Case sensitive requests - separate cache!  
 });
 
+// Health Check (API and SqlServer database)
+/* Required NuGet packages: 1) Asp.NetCore.HealthChecks.SqlServer
+2) Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore  */
+builder.Services.AddHealthChecks()
+    .AddCheck<CustomHealthCheck>(
+        "Custom Health Check",  // name to be displayed for custom Health Check
+        failureStatus: HealthStatus.Degraded,  // set "Degraded" considered as failure
+        tags: new[] { "custom" }  // add tag to our custom Health Check
+        )
+        .AddSqlServer(connectionString, tags: new[] { "database" })  // Connect to SqlServer Db
+        .AddDbContextCheck<HotelListingDbContext>(tags: new[] { "database" });  // Database health check
+
 // OData for data filtring and sorting on controller level
 builder.Services.AddControllers().AddOData(options => 
 {
@@ -146,6 +161,85 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.MapHealthChecks(
+    "/healthcheck",  // endpoint for custom API Health Check
+    new HealthCheckOptions
+    {
+        Predicate = healthcheck => healthcheck.Tags.Contains("custom"),  // run on failure
+        ResultStatusCodes =  // specify Response Codes based on Health Status
+        {
+            [HealthStatus.Healthy] = StatusCodes.Status200OK,
+            [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable,
+            [HealthStatus.Degraded] = StatusCodes.Status200OK,
+        },
+        ResponseWriter = WriteResponse  // use of Func<HttpContext, HealthReport, Task>
+    }) ;
+
+app.MapHealthChecks(
+    "/databasehealthcheck",  // endpoint for database Health Check
+    new HealthCheckOptions
+    {
+        Predicate = healthcheck => healthcheck.Tags.Contains("database"), 
+        ResultStatusCodes =  // specify Response Codes based on Health Status
+        {
+            [HealthStatus.Healthy] = StatusCodes.Status200OK,
+            [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable,
+            [HealthStatus.Degraded] = StatusCodes.Status200OK,
+        },
+        ResponseWriter = WriteResponse  // use of Func<HttpContext, HealthReport, Task>
+    });
+
+app.MapHealthChecks(
+    "/healthz",  // endpoint for all health checks without filtering/tags
+    new HealthCheckOptions
+    {
+        ResultStatusCodes =  // specify Response Codes based on Health Status
+        {
+            [HealthStatus.Healthy] = StatusCodes.Status200OK,
+            [HealthStatus.Unhealthy] = StatusCodes.Status503ServiceUnavailable,
+            [HealthStatus.Degraded] = StatusCodes.Status200OK,
+        },
+        ResponseWriter = WriteResponse  // use of Func<HttpContext, HealthReport, Task>
+    });
+
+static Task WriteResponse(HttpContext context, HealthReport healthReport)
+{
+    context.Response.ContentType = "application/json; charset=utf-8";
+    var options = new JsonWriterOptions { Indented = true };
+    
+    using var memoryStream = new MemoryStream();
+    using (var jsonWriter = new Utf8JsonWriter(memoryStream, options))
+    {
+        jsonWriter.WriteStartObject();  // begin Json object
+        jsonWriter.WriteString("status", healthReport.Status.ToString());
+        jsonWriter.WriteStartObject("results");
+
+        foreach (var healthReportEntry in  healthReport.Entries)
+        {
+            jsonWriter.WriteStartObject(healthReportEntry.Key);
+            jsonWriter.WriteString("status", healthReportEntry.Value.ToString());
+            jsonWriter.WriteString("description", healthReportEntry.Value.Description);
+            jsonWriter.WriteStartObject("data");
+
+            foreach (var item in healthReportEntry.Value.Data)
+            {
+                jsonWriter.WritePropertyName(item.Key);
+                JsonSerializer.Serialize(jsonWriter, item.Value,
+                    item.Value?.GetType() ?? typeof(object));
+            }
+
+            jsonWriter.WriteEndObject();
+            jsonWriter.WriteEndObject();
+        }
+
+        jsonWriter.WriteEndObject();
+        jsonWriter.WriteEndObject();  // close json object
+    }
+    return context.Response.WriteAsync(Encoding.UTF8.GetString(memoryStream.ToArray()));
+}
+
+app.MapHealthChecks("/health"); // endpoint for all default health check
 
 app.UseMiddleware<ExceptionMiddleware>();
 
@@ -179,3 +273,25 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+
+class CustomHealthCheck : IHealthCheck
+{
+    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, 
+        CancellationToken cancellationToken = default)
+    {
+        var isHealthy = true;
+
+        /* 
+          here place logic for changing status isHealthy = false
+        */
+
+        if(isHealthy)
+        {
+            return Task.FromResult(HealthCheckResult.Healthy("All systems are looking good"));
+        }
+
+        return Task.FromResult(new HealthCheckResult(context.Registration.FailureStatus, 
+            "System Unhealthy"));  // or we can return Exception (see other choises)
+    }
+}
